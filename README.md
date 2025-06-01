@@ -1,5 +1,5 @@
 # Minkowski Engine Docker
-A customizable Dockerfile that allows you to specify Ubuntu, CUDA, Python, and PyTorch versions for installing [Minkowski Engine](https://github.com/NVIDIA/MinkowskiEngine)
+A customizable Dockerfile that specify `Ubuntu 20.04`, `CUDA 11.3`, `Python 3.8`, and `PyTorch 1.12.0` for installing [Minkowski Engine](https://github.com/NVIDIA/MinkowskiEngine)
 
 ```
 docker build -t minkowski .
