@@ -1,103 +1,49 @@
-ARG BASE_IMAGE=ubuntu:20.04
+# Define build arguments (with default values matching Minkowski Engine's typical setup)
+ARG UBUNTU_VERSION=20.04
+ARG CUDA_VERSION=11.3.1
+ARG CUDNN_VERSION=8
 
-FROM ${BASE_IMAGE} AS dev-base
+# Base image with customizable CUDA and cuDNN
+FROM nvidia/cuda:${CUDA_VERSION}-cudnn${CUDNN_VERSION}-runtime-ubuntu${UBUNTU_VERSION}
+
+# Set environment variables to avoid interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
-RUN --mount=type=cache,id=apt-dev,target=/var/cache/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
-        ca-certificates \
-        ccache \
-        cmake \
-        curl \
-        git \
-        libjpeg-dev \
-        libpng-dev && \
-    rm -rf /var/lib/apt/lists/*
-RUN /usr/sbin/update-ccache-symlinks
-RUN mkdir /opt/ccache && ccache --set-config=cache_dir=/opt/ccache
-ENV PATH=/opt/conda/bin:$PATH
 
-FROM dev-base AS conda
-ARG PYTHON_VERSION=3.10
-RUN curl -fsSL -v -o ~/miniconda.sh -O  https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh  && \
-    chmod +x ~/miniconda.sh && \
-    ~/miniconda.sh -b -p /opt/conda && \
-    rm ~/miniconda.sh && \
-    /opt/conda/bin/conda install -y python=${PYTHON_VERSION} conda-build pyyaml ipython pip && \
-    /opt/conda/bin/pip install numpy==1.22.4 && \
-    /opt/conda/bin/conda clean -ya
-
-FROM dev-base AS submodule-update
-WORKDIR /opt/pytorch
-COPY . .
-RUN git submodule update --init --recursive --jobs 0
-
-FROM conda AS build
-WORKDIR /opt/pytorch
-COPY --from=conda /opt/conda /opt/conda
-COPY --from=submodule-update /opt/pytorch /opt/pytorch
-RUN --mount=type=cache,target=/opt/ccache \
-    TORCH_CUDA_ARCH_LIST="3.5 5.2 6.0 6.1 7.0+PTX 8.0" TORCH_NVCC_FLAGS="-Xfatbin -compress-all" \
-    CMAKE_PREFIX_PATH="$(dirname $(which conda))/../" \
-    python setup.py install
-
-FROM conda AS conda-installs
-ARG CUDA_CHANNEL=nvidia
-ARG INSTALL_CHANNEL=pytorch-nightly
-ARG CUDA_VERSION=11.3
-ENV CONDA_OVERRIDE_CUDA=${CUDA_VERSION}
-RUN /opt/conda/bin/conda install -c "${INSTALL_CHANNEL}" -c "${CUDA_CHANNEL}" -y python=${PYTHON_VERSION} pytorch torchvision torchtext "cudatoolkit=${CUDA_VERSION}" && \
-    /opt/conda/bin/conda clean -ya
-RUN /opt/conda/bin/pip install torchelastic
-
-FROM ${BASE_IMAGE} AS torch
-ARG PYTORCH_VERSION=1.12.0
-LABEL com.nvidia.volumes.needed="nvidia_driver"
-RUN --mount=type=cache,id=apt-final,target=/var/cache/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        libjpeg-dev \
-        libpng-dev && \
-    rm -rf /var/lib/apt/lists/*
-COPY --from=conda-installs /opt/conda /opt/conda
-ENV PATH=/opt/conda/bin:$PATH
-ENV NVIDIA_VISIBLE_DEVICES=all
-ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
-ENV LD_LIBRARY_PATH=/usr/local/nvidia/lib:/usr/local/nvidia/lib64
-ENV PYTORCH_VERSION=${PYTORCH_VERSION}
-WORKDIR /workspace
-COPY --from=build /opt/conda /opt/conda
-
-FROM torch AS minkowski
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Asia/Hong_Kong
-RUN apt-get update && \
-    apt-get install -y tzdata && \
-    ln -fs /usr/share/zoneinfo/$TZ /etc/localtime && \
-    echo $TZ > /etc/timezone
-
-# Install additional dependencies for MinkowskiEngine
-RUN apt-get update && \
-    apt-get install -y \
+# Install system dependencies (Python 3.8 for Ubuntu 20.04/18.04 compatibility)
+RUN apt-get update && apt-get install -y \
+    python3.8 \
+    python3.8-dev \
+    python3-pip \
     git \
-    ninja-build \
     cmake \
     build-essential \
     libopenblas-dev \
-    xterm \
-    xauth \
-    openssh-server \
-    tmux \
-    wget \
-    mate-desktop-environment-core && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/*
 
-# # Install MinkowskiEngine
-ENV TORCH_CUDA_ARCH_LIST="3.5 5.2 6.0 6.1 7.0+PTX 8.0"
-ENV TORCH_NVCC_FLAGS="-Xfatbin -compress-all"
-ENV MAX_JOBS=4
-RUN git clone --recursive "https://github.com/NVIDIA/MinkowskiEngine"
-RUN cd MinkowskiEngine; python setup.py install --force_cuda --blas=openblas
+# Make Python 3.8 the default
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3.8 1
 
-FROM minkowski AS dev
+# Install PyTorch 1.12.0 with matching CUDA support
+# Note: CUDA 11.3 → torch==1.12.0+cu113; CUDA 10.2 → torch==1.12.0+cu102
+ARG PYTORCH_VERSION=1.12.0
+ARG PYTORCH_CUDA=cu113
+RUN pip install --no-cache-dir \
+    torch==${PYTORCH_VERSION}+${PYTORCH_CUDA} \
+    torchvision==0.13.0+${PYTORCH_CUDA} \
+    torchaudio==0.12.0 \
+    --extra-index-url https://download.pytorch.org/whl/${PYTORCH_CUDA}
+
+# Install Minkowski Engine dependencies
+RUN pip install --no-cache-dir \
+    numpy==1.21.6 \
+    ninja
+
+# Clone and install Minkowski Engine (default: v0.5.4)
+ARG MINKOWSKI_VERSION=v0.5.4
+RUN git clone https://github.com/NVIDIA/MinkowskiEngine.git && \
+    cd MinkowskiEngine && \
+    git checkout ${MINKOWSKI_VERSION} && \
+    python setup.py install --blas_include_dirs=/usr/include/openblas --force_cuda
+
+# Set the working directory
+WORKDIR /workspace
