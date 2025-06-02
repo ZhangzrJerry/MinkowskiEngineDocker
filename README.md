@@ -17,3 +17,4 @@ docker run --gpus all \
 ### Notes:
 
 After test, running Minkowski Engine on `RTX 4060` with `CUDA 11.3.1` caused runtime error.
+Try `--cpu_only` instead of `--force_cuda` in such a case.
