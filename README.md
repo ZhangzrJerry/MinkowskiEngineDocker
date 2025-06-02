@@ -13,3 +13,7 @@ docker run --gpus all \
   -it \
   minkowski bash
 ```
+
+### Notes:
+
+After test, running Minkowski Engine on `RTX 4060` with `CUDA 11.3.1` caused runtime error.
