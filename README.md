@@ -7,6 +7,7 @@ docker build -t minkowski \
   --build-arg CUDA_VERSION=11.3.1 \           # Options: 11.3.1, 11.6.2, 10.2
   --build-arg CUDNN_VERSION=8 \               # Typically 7 or 8
   --build-arg PYTORCH_CUDA=cu113 \            # Must match CUDA_VERSION (e.g., cu113, cu102)
+  .
 
 docker run --gpus all \
   -it \
